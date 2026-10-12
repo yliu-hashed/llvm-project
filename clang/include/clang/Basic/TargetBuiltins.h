@@ -436,6 +436,17 @@ namespace clang {
   };
   }
 
+  /// IC10 builtins
+  namespace IC10 {
+  enum {
+    LastTIBuiltin = clang::Builtin::FirstTSBuiltin - 1,
+#define GET_BUILTIN_ENUMERATORS
+#include "clang/Basic/BuiltinsIC10.inc"
+#undef GET_BUILTIN_ENUMERATORS
+    LastTSBuiltin
+  };
+  }
+
   /// MIPS builtins
   namespace Mips {
     enum {

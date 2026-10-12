@@ -1,0 +1,13 @@
+// IC10
+#ifndef LLVM_LIB_TARGET_IC10_TARGETINFO_IC10TARGETINFO_H
+#define LLVM_LIB_TARGET_IC10_TARGETINFO_IC10TARGETINFO_H
+
+namespace llvm {
+
+class Target;
+
+Target &getTheIC10Target();
+
+} // namespace llvm
+
+#endif // LLVM_LIB_TARGET_IC10_TARGETINFO_IC10TARGETINFO_H

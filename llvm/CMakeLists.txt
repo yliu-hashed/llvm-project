@@ -569,6 +569,7 @@ set(LLVM_ALL_TARGETS
   BPF
   DirectX
   Hexagon
+  IC10
   Lanai
   LoongArch
   Mips

@@ -290,6 +290,8 @@ createTargetCodeGenInfo(CodeGenModule &CGM) {
   }
   case llvm::Triple::hexagon:
     return createHexagonTargetCodeGenInfo(CGM);
+  case llvm::Triple::ic10:
+    return createIC10TargetCodeGenInfo(CGM);
   case llvm::Triple::lanai:
     return createLanaiTargetCodeGenInfo(CGM);
   case llvm::Triple::r600:

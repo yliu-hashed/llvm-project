@@ -1,0 +1,10 @@
+// IC10
+
+// NOTE: NO INCLUDE GUARD DESIRED!
+
+#ifndef MACHINE_FUNCTION_PASS
+#define MACHINE_FUNCTION_PASS(NAME, CREATE_PASS)
+#endif
+MACHINE_FUNCTION_PASS("ic10-postlegalizer-combiner", IC10PostLegalizerCombinerPass())
+MACHINE_FUNCTION_PASS("ic10-asm-printer", IC10AsmPrinterPass())
+#undef MACHINE_FUNCTION_PASS

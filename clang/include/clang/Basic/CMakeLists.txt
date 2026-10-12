@@ -119,6 +119,10 @@ clang_tablegen(BuiltinsHexagon.inc -gen-clang-builtins
   SOURCE BuiltinsHexagon.td
   TARGET ClangBuiltinsHexagon)
 
+clang_tablegen(BuiltinsIC10.inc -gen-clang-builtins
+  SOURCE BuiltinsIC10.td
+  TARGET ClangBuiltinsIC10)
+
 clang_tablegen(BuiltinsNVPTX.inc -gen-clang-builtins
   SOURCE BuiltinsNVPTX.td
   TARGET ClangBuiltinsNVPTX)
