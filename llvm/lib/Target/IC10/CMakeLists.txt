@@ -2,17 +2,17 @@ add_llvm_component_group(IC10)
 
 set(LLVM_TARGET_DEFINITIONS IC10.td)
 
-tablegen(LLVM IC10GenGlobalISel.inc       -gen-global-isel)
-tablegen(LLVM IC10GenRegisterInfo.inc     -gen-register-info)
-tablegen(LLVM IC10GenRegisterBank.inc     -gen-register-bank)
-tablegen(LLVM IC10GenInstrInfo.inc        -gen-instr-info)
-tablegen(LLVM IC10GenSubtargetInfo.inc    -gen-subtarget)
-tablegen(LLVM IC10GenCallingConv.inc      -gen-callingconv)
-tablegen(LLVM IC10GenAsmWriter.inc        -gen-asm-writer)
+llvm_tablegen(IC10GenGlobalISel.inc       -gen-global-isel)
+llvm_tablegen(IC10GenRegisterInfo.inc     -gen-register-info)
+llvm_tablegen(IC10GenRegisterBank.inc     -gen-register-bank)
+llvm_tablegen(IC10GenInstrInfo.inc        -gen-instr-info)
+llvm_tablegen(IC10GenSubtargetInfo.inc    -gen-subtarget)
+llvm_tablegen(IC10GenCallingConv.inc      -gen-callingconv)
+llvm_tablegen(IC10GenAsmWriter.inc        -gen-asm-writer)
 
-tablegen(LLVM IC10GenPostLegalizeGICombiner.inc -gen-global-isel-combiner
+llvm_tablegen(IC10GenPostLegalizeGICombiner.inc -gen-global-isel-combiner
               -combiners="IC10PostLegalizerCombiner")
-tablegen(LLVM IC10GenPreLegalizeGICombiner.inc -gen-global-isel-combiner
+llvm_tablegen(IC10GenPreLegalizeGICombiner.inc -gen-global-isel-combiner
               -combiners="IC10PreLegalizerCombiner")
 
 add_public_tablegen_target(IC10CommonTableGen)

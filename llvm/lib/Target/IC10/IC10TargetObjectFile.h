@@ -10,7 +10,8 @@ class MCContext;
 class TargetMachine;
 
 class IC10TargetObjectFile : public TargetLoweringObjectFileELF {
-  void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
+  void initialize(MCContext &Ctx, const TargetMachine &TM,
+                  const Module &M) override;
 };
 
 } // end namespace llvm

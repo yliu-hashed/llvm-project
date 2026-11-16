@@ -6,6 +6,7 @@
 
 using namespace llvm;
 
-void IC10TargetObjectFile::Initialize(MCContext &Ctx, const TargetMachine &TM) {
-  TargetLoweringObjectFileELF::Initialize(Ctx, TM);
+void IC10TargetObjectFile::initialize(MCContext &Ctx, const TargetMachine &TM,
+                                      const Module &M) {
+  TargetLoweringObjectFileELF::initialize(Ctx, TM, M);
 }
