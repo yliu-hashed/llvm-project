@@ -17,13 +17,10 @@
 #include "llvm/CodeGen/RegisterPressure.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/CodeGenTypes/LowLevelType.h"
-#include "llvm/IR/FMF.h"
 #include "llvm/IR/InstrTypes.h"
-#include "llvm/Passes/OptimizationLevel.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <cassert>
 #include <cmath>
-#include <cstdint>
 
 using namespace llvm;
 

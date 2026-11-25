@@ -1,7 +1,6 @@
 // IC10
 
 #include "IC10.h"
-#include "IC10TargetMachine.h"
 #include "MCTargetDesc/IC10MCTargetDesc.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -9,20 +8,14 @@
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/Register.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
-#include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/IR/Analysis.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugLoc.h"
-#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
-#include "llvm/IR/ValueMap.h"
-#include "llvm/MC/MCInst.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Transforms/Scalar/LowerAtomicPass.h"
 #include <cassert>
 #include <cstdint>
 #include <stdint.h>
