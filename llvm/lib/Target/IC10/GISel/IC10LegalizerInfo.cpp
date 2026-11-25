@@ -10,6 +10,7 @@
 #include "llvm/CodeGen/GlobalISel/LegalizerInfo.h"
 #include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/Register.h"
@@ -151,8 +152,8 @@ bool legalizeLoad(MachineInstr &MI, MachineRegisterInfo &MRI,
   Register Dest = MI.getOperand(0).getReg();
   Register Addr = MI.getOperand(1).getReg();
 
-  LLT OrigTy = MRI.getType(Dest);
-  assert(MI.memoperands().size() == 1);
+  LLT DestTy = MRI.getType(Dest);
+  assert(MI.hasOneMemOperand());
 
   const LLT i64 = LLT::integer(64);
 
@@ -160,7 +161,7 @@ bool legalizeLoad(MachineInstr &MI, MachineRegisterInfo &MRI,
   MachineMemOperand *NewMMO = MF->getMachineMemOperand(OldMMO, 0, i64);
 
   unsigned int Len = OldMMO->getSizeInBits().getValue();
-  if (OrigTy.getScalarSizeInBits() != Len) {
+  if (DestTy.getScalarSizeInBits() != 64) {
     Register Wide = MRI.createGenericVirtualRegister(i64);
     MIRBuilder.buildTrunc(Dest, Wide);
     Dest = Wide;
@@ -178,7 +179,7 @@ bool legalizeLoad(MachineInstr &MI, MachineRegisterInfo &MRI,
     MIRBuilder.buildAnd(Dest, Temp, Mask);
   } else {
     MIRBuilder.buildLoad(Dest, Addr, *NewMMO);
-    assert(OrigTy.getScalarSizeInBits() < 64);
+    assert(DestTy.getScalarSizeInBits() < 64);
   }
 
   MI.eraseFromParent();
@@ -196,7 +197,7 @@ bool legalizeStore(MachineInstr &MI, MachineRegisterInfo &MRI,
 
   LLT SrcTy = MRI.getType(Src);
   assert(SrcTy.isScalar() && SrcTy.getSizeInBits() < 64);
-  assert(MI.memoperands().size() == 1);
+  assert(MI.hasOneMemOperand());
 
   MachineMemOperand *OldMMO = *MI.memoperands_begin();
   MachineMemOperand *NewMMO =

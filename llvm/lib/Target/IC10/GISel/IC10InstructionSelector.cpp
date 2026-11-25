@@ -6,6 +6,7 @@
 #include "IC10Subtarget.h"
 #include "IC10TargetMachine.h"
 #include "MCTargetDesc/IC10MCTargetDesc.h"
+#include "llvm/CodeGen/GlobalISel/GIMatchTableExecutor.h"
 #include "llvm/CodeGen/GlobalISel/GIMatchTableExecutorImpl.h"
 #include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
 #include "llvm/CodeGen/GlobalISel/InstructionSelector.h"
@@ -21,7 +22,9 @@
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/InstrTypes.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicsIC10.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CodeGenCoverage.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -65,16 +68,14 @@ private:
   bool selectICMP(MachineInstr &I) const;
   bool selectAssertedFCMP(MachineInstr &I) const;
   bool selectBranch(MachineInstr &I) const;
-
+  bool selectLoad(MachineInstr &I) const;
+  bool selectStore(MachineInstr &I) const;
   void getOperandsForICMP(const MachineInstr &MI, IC10CC::CondCode &CC,
                           MachineOperand &LHS, MachineOperand &RHS,
                           bool &RHSIsImm) const;
   bool getOperandsForAssertedFCMP(const MachineInstr &MI, IC10CC::CondCode &CC,
                                   MachineOperand &LHS, MachineOperand &RHS,
                                   bool &RHSIsImm) const;
-
-  // Select a reg + imm pattern for address.
-  ComplexRendererFns selectAddrRegImm(MachineOperand &Root) const;
 
   const IC10TargetMachine &TM;
   const IC10InstrInfo &TII;
@@ -153,6 +154,10 @@ bool IC10InstructionSelector::select(MachineInstr &I) {
 
     return RBI.constrainGenericRegister(DefReg, *DefRC, *MRI);
   }
+  case G_LOAD:
+    return selectLoad(I);
+  case G_STORE:
+    return selectStore(I);
   case G_BRCOND:
     return selectCondBR(I);
   case G_BR:
@@ -171,6 +176,50 @@ bool IC10InstructionSelector::select(MachineInstr &I) {
   default:
     return false;
   }
+}
+
+bool IC10InstructionSelector::selectLoad(MachineInstr &MI) const {
+  assert(MI.getOpcode() == TargetOpcode::G_LOAD);
+  MachineBasicBlock &MBB = *MI.getParent();
+  DebugLoc DL = MI.getDebugLoc();
+
+  Register Dest = MI.getOperand(0).getReg();
+  Register Addr = MI.getOperand(1).getReg();
+
+  BuildMI(MBB, MI, DL, TII.get(TargetOpcode::COPY), IC10::SP)
+      .addReg(Addr);
+
+  bool IsFloatClass = MRI->getRegClassOrNull(Dest) == &IC10::FPRRegClass;
+  int Opcode = IsFloatClass ? IC10::PEEK : IC10::IPEEK;
+  BuildMI(MBB, MI, DL, TII.get(Opcode), Dest);
+
+  MI.removeFromParent();
+  return true;
+}
+
+bool IC10InstructionSelector::selectStore(MachineInstr &MI) const {
+  assert(MI.getOpcode() == TargetOpcode::G_STORE);
+  MachineBasicBlock &MBB = *MI.getParent();
+  DebugLoc DL = MI.getDebugLoc();
+
+  Register Src = MI.getOperand(0).getReg();
+  Register Addr = MI.getOperand(1).getReg();
+  auto SrcConst = getIConstantVRegSExtVal(Src, *MRI);
+
+  BuildMI(MBB, MI, DL, TII.get(TargetOpcode::COPY), IC10::SP)
+      .addReg(Addr);
+
+  bool IsFloatClass = MRI->getRegClassOrNull(Src) == &IC10::FPRRegClass;
+  if (SrcConst.has_value()) {
+    int Opcode = IsFloatClass ? IC10::PUSHi : IC10::IPUSHi;
+    BuildMI(MBB, MI, DL, TII.get(Opcode)).addImm(SrcConst.value());
+  } else {
+    int Opcode = IsFloatClass ? IC10::PUSHr : IC10::IPUSHr;
+    BuildMI(MBB, MI, DL, TII.get(Opcode)).addReg(Src);
+  }
+
+  MI.removeFromParent();
+  return true;
 }
 
 void IC10InstructionSelector::getOperandsForICMP(const MachineInstr &MI,
@@ -391,9 +440,7 @@ bool IC10InstructionSelector::selectAssertedFCMP(MachineInstr &MI) const {
   assert(Success && CC != IC10CC::COND_INVALID);
 
   unsigned Opcode = TII.getCmpOpcode(CC, RHSIsImm);
-  BuildMI(MBB, MI, MI.getDebugLoc(), TII.get(Opcode), Dest)
-      .add(LHS)
-      .add(RHS);
+  BuildMI(MBB, MI, MI.getDebugLoc(), TII.get(Opcode), Dest).add(LHS).add(RHS);
   MI.removeFromParent();
   return true;
 }
@@ -455,42 +502,6 @@ bool IC10InstructionSelector::selectBranch(MachineInstr &MI) const {
   BuildMI(MBB, MI, DL, TII.get(IC10::Ji)).addMBB(MI.getOperand(0).getMBB());
   MI.eraseFromParent();
   return true;
-}
-
-InstructionSelector::ComplexRendererFns
-IC10InstructionSelector::selectAddrRegImm(MachineOperand &Root) const {
-  if (!Root.isReg())
-    return std::nullopt;
-
-  MachineInstr *RootDef = MRI->getVRegDef(Root.getReg());
-  if (RootDef->getOpcode() == TargetOpcode::G_FRAME_INDEX) {
-    return {{
-        [=](MachineInstrBuilder &MIB) { MIB.add(RootDef->getOperand(1)); },
-        [=](MachineInstrBuilder &MIB) { MIB.addImm(0); },
-    }};
-  }
-
-  if (isBaseWithConstantOffset(Root, *MRI)) {
-    assert(RootDef->getOpcode() == IC10::G_PTR_ADD);
-
-    Register BaseReg = RootDef->getOperand(1).getReg();
-    Register OffsetReg = RootDef->getOperand(2).getReg();
-
-    auto C = getIConstantVRegVal(OffsetReg, *MRI);
-    int64_t Offset = C.value().getSExtValue();
-    assert(Offset % 8 == 0 && "Alignment violated!");
-
-    MachineInstr *BaseDef = MRI->getVRegDef(BaseReg);
-    if (BaseDef->getOpcode() == TargetOpcode::G_FRAME_INDEX) {
-      return {
-          {[=](MachineInstrBuilder &MIB) { MIB.add(BaseDef->getOperand(1)); },
-           [=](MachineInstrBuilder &MIB) { MIB.addImm(Offset / 8); }}};
-    }
-    return {{[=](MachineInstrBuilder &MIB) { MIB.addReg(BaseReg); },
-             [=](MachineInstrBuilder &MIB) { MIB.addImm(Offset / 8); }}};
-  }
-  return {{[=](MachineInstrBuilder &MIB) { MIB.addReg(Root.getReg()); },
-           [=](MachineInstrBuilder &MIB) { MIB.addImm(0); }}};
 }
 
 namespace llvm {

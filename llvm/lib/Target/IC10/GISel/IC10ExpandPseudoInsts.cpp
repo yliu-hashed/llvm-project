@@ -126,8 +126,8 @@ const DenseMap<uint, uint> I2FOpcodeTable = {
     { ISELECTri, SELECTri },
 
     // load and store
-    { ILDr, LDr }, { ILDi, LDi },
-    { ISTrr, STrr }, { ISTir, STir }, { ISTri, STri }, { ISTii, STii },
+    { IPUSHi, PUSHi }, { IPUSHr, PUSHr },
+    { IPOP, POP }, { IPEEK, PEEK },
     // clang-format on
 };
 

@@ -62,10 +62,6 @@ bool IC10RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   case IC10::IADDri:
     eliminateFrameIndexInADDri(II, FIOperandNum, Offset);
     return true;
-  //   return true;
-  // case IC10::ADD_I_RI:
-  //   eliminateFrameIndexInADDRI(II, FIOperandNum, Offset);
-  //   return true;
   default:
     llvm_unreachable("Frame index cannot be eliminated for opcode ");
   }

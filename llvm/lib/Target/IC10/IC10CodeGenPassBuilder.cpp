@@ -40,7 +40,7 @@ public:
   void addPreRegBankSelect(PassManagerWrapper &PMW) override;
   Error addRegBankSelect(PassManagerWrapper &PMW) override;
   Error addGlobalInstructionSelect(PassManagerWrapper &PMW) override;
-  void addPreEmitPass(PassManagerWrapper &PMW) override;
+  void addPreSched2(PassManagerWrapper &PMW) override;
 
   // void addMachineLateOptimization(PassManagerWrapper &PMW) override;
 
@@ -80,7 +80,7 @@ Error IC10CodeGenPassBuilder::addGlobalInstructionSelect(
   return Error::success();
 }
 
-void IC10CodeGenPassBuilder::addPreEmitPass(PassManagerWrapper &PMW) {
+void IC10CodeGenPassBuilder::addPreSched2(PassManagerWrapper &PMW) {
   addMachineFunctionPass(IC10ExpandPseudoInstsPass(), PMW);
   addMachineFunctionPass(IC10LateCombinePushPopPass(), PMW);
 }

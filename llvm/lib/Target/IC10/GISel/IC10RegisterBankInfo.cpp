@@ -4,8 +4,6 @@
 #include "IC10RegisterInfo.h"
 #include "MCTargetDesc/IC10MCTargetDesc.h"
 #include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
-#include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/Register.h"
 #include "llvm/CodeGen/RegisterBank.h"
 #include "llvm/CodeGen/RegisterBankInfo.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
@@ -26,68 +24,36 @@ namespace IC10 {
 const RegisterBankInfo::PartialMapping PartMappings[]{
     // clang-format off
     // GPR Partial Mapping
-    {0, 64, GPRRegBank},
-    {0, 64, FPRRegBank},
+    {0, 64, APRRegBank},
     // clang-format on
 };
 
 enum PartialMappingIdx {
-  PMI_GPR = 0,
-  PMI_FPR = 1,
+  PMI_APR = 0,
 };
 
 const RegisterBankInfo::ValueMapping ValueMappings[] = {
     // invalid
     {nullptr, 0},
-    // 3 operands in GPRs
-    {&PartMappings[PMI_FPR], 1}, // 1: FGG
-    {&PartMappings[PMI_GPR], 1}, // 2: GGG
-    {&PartMappings[PMI_GPR], 1}, // 3:
-    {&PartMappings[PMI_GPR], 1}, // 4:
-    {&PartMappings[PMI_GPR], 1}, // 5: GFF
-    {&PartMappings[PMI_FPR], 1}, // 6: FFF
-    {&PartMappings[PMI_FPR], 1}, // 7:
-    {&PartMappings[PMI_FPR], 1}, // 8: FGFF
-    {&PartMappings[PMI_GPR], 1},
-    {&PartMappings[PMI_FPR], 1},
-    {&PartMappings[PMI_FPR], 1},
+    // 3 operands in APR
+    {&PartMappings[PMI_APR], 1}, // 5G
+    {&PartMappings[PMI_APR], 1},
+    {&PartMappings[PMI_APR], 1},
+    {&PartMappings[PMI_APR], 1},
+    {&PartMappings[PMI_APR], 1},
+    {nullptr, 0},
+    {&PartMappings[PMI_APR], 1},
+    {&PartMappings[PMI_APR], 1},
+    {&PartMappings[PMI_APR], 1},
 };
 
 enum ValueMappingIdx {
   InvalidIdx = 0,
-  VMI_FGG = 1,
-  VMI_GGG = 2,
-  VMI_GGGG = 2,
-  VMI_GFF = 5,
-  VMI_FFF = 6,
-  VMI_FGFF = 8,
+  VMI_5G = 1,
 };
 
 } // end namespace IC10
 } // end namespace llvm
-
-namespace {
-
-bool isFloat(Register Reg, const MachineRegisterInfo &MRI) {
-  // first, check pointer's type
-  LLT Ty = MRI.getType(Reg);
-  if (Ty.isFloat())
-    return true;
-  if (Ty.isInteger() || Ty.isPointer())
-    return false;
-  // then check register class
-  if (Reg.isPhysical())
-    return false;
-  auto *RegClass = MRI.getRegClass(Reg);
-  if (RegClass == &IC10::FPRRegClass)
-    return true;
-  if (RegClass == &IC10::GPRRegClass)
-    return false;
-  // don't know what to do
-  return false;
-}
-
-} // namespace
 
 IC10RegisterBankInfo::IC10RegisterBankInfo(const TargetRegisterInfo &RTI)
     : IC10GenRegisterBankInfo() {}
@@ -103,28 +69,15 @@ IC10RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
       return Mapping;
   }
 
-  const MachineFunction &MF = *MI.getParent()->getParent();
-  const MachineRegisterInfo &MRI = MF.getRegInfo();
-
   using namespace TargetOpcode;
 
   unsigned NumOperands = MI.isCopyLike() ? 1 : MI.getNumOperands();
   const ValueMapping *OperandsMapping = nullptr;
 
-  const ValueMapping *SingleF = &IC10::ValueMappings[IC10::VMI_FFF];
-  const ValueMapping *SingleG = &IC10::ValueMappings[IC10::VMI_GGG];
+  const ValueMapping *Single = &IC10::ValueMappings[IC10::VMI_5G];
 
   switch (Opc) {
-  case COPY: {
-    bool IsFloat1 = isFloat(MI.getOperand(0).getReg(), MRI);
-    bool IsFloat2 = isFloat(MI.getOperand(1).getReg(), MRI);
-    if (IsFloat1 || IsFloat2) {
-      OperandsMapping = &IC10::ValueMappings[IC10::VMI_FFF];
-    } else {
-      OperandsMapping = &IC10::ValueMappings[IC10::VMI_GGG];
-    }
-    break;
-  }
+  case COPY:
   case G_PTR_ADD:
   case G_ADD:
   case G_SUB:
@@ -137,48 +90,15 @@ IC10RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   case G_AND:
   case G_OR:
   case G_XOR:
-    OperandsMapping = &IC10::ValueMappings[IC10::VMI_GGG];
-    break;
   case G_ANYEXT:
-  case G_TRUNC: {
-    OperandsMapping = &IC10::ValueMappings[IC10::VMI_GGG];
-    break;
-  }
+  case G_TRUNC:
   case G_LOAD:
-  case G_STORE: {
-    LLT Ty = MRI.getType(MI.getOperand(0).getReg());
-    if (Ty.isFloat()) {
-      OperandsMapping = &IC10::ValueMappings[IC10::VMI_FGG];
-    } else if (Ty.isInteger() || Ty.isPointer()) {
-      OperandsMapping = &IC10::ValueMappings[IC10::VMI_GGG];
-    } else {
-      return getInvalidInstructionMapping();
-    }
-    break;
-  }
-  case G_SELECT: {
-    LLT Ty = MRI.getType(MI.getOperand(0).getReg());
-    if (Ty.isFloat()) {
-      OperandsMapping = &IC10::ValueMappings[IC10::VMI_FGFF];
-    } else if (Ty.isInteger() || Ty.isPointer()) {
-      OperandsMapping = &IC10::ValueMappings[IC10::VMI_GGGG];
-    } else {
-      return getInvalidInstructionMapping();
-    }
-    break;
-  }
-  case G_CONSTANT:
-  case G_FRAME_INDEX:
-    OperandsMapping = getOperandsMapping({SingleG, nullptr});
-    break;
+  case G_STORE:
+  case G_SELECT:
   case G_SITOFP:
   case G_UITOFP:
-    OperandsMapping = &IC10::ValueMappings[IC10::VMI_FGG];
-    break;
   case G_FPTOSI:
   case G_FPTOUI:
-    OperandsMapping = &IC10::ValueMappings[IC10::VMI_GFF];
-    break;
   case G_FADD:
   case G_FSUB:
   case G_FMUL:
@@ -200,10 +120,18 @@ IC10RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   case G_FSQRT:
   case G_FPOW:
   case G_FLOG:
-    OperandsMapping = &IC10::ValueMappings[IC10::VMI_FFF];
+  case IC10::G_FEQ:
+  case IC10::G_FGE:
+  case IC10::G_FGT:
+  case IC10::G_FLE:
+  case IC10::G_FLT:
+  case IC10::G_FNE:
+    OperandsMapping = &IC10::ValueMappings[IC10::VMI_5G];
     break;
+  case G_CONSTANT:
   case G_FCONSTANT:
-    OperandsMapping = getOperandsMapping({SingleF, nullptr});
+  case G_FRAME_INDEX:
+    OperandsMapping = getOperandsMapping({Single, nullptr});
     break;
   case G_INTRINSIC:
     OperandsMapping = getIntrinsicOperandMapping(MI);
@@ -216,21 +144,11 @@ IC10RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
     OperandsMapping = getOperandsMapping({nullptr});
     break;
   case G_BRCOND:
-    OperandsMapping = getOperandsMapping({SingleG, nullptr});
+    OperandsMapping = getOperandsMapping({Single, nullptr});
     break;
   case G_ICMP:
-    OperandsMapping = getOperandsMapping({SingleG, nullptr, SingleG, SingleG});
-    break;
   case G_FCMP:
-    OperandsMapping = getOperandsMapping({SingleG, nullptr, SingleF, SingleF});
-    break;
-  case IC10::G_FEQ:
-  case IC10::G_FGE:
-  case IC10::G_FGT:
-  case IC10::G_FLE:
-  case IC10::G_FLT:
-  case IC10::G_FNE:
-    OperandsMapping = &IC10::ValueMappings[IC10::VMI_GFF];
+    OperandsMapping = getOperandsMapping({Single, nullptr, Single, Single});
     break;
   default:
     return getInvalidInstructionMapping();
@@ -257,7 +175,7 @@ IC10RegisterBankInfo::getIntrinsicWSideEffectsOperandMapping(
   case Intrinsic::ic10_yield:
     return getOperandsMapping({nullptr});
   case Intrinsic::ic10_sleep:
-    return getOperandsMapping({nullptr, &IC10::ValueMappings[IC10::VMI_FFF]});
+    return getOperandsMapping({nullptr, &IC10::ValueMappings[IC10::VMI_5G]});
   }
 }
 
@@ -266,9 +184,8 @@ IC10RegisterBankInfo::getRegBankFromRegClass(const TargetRegisterClass &RC,
                                              LLT Ty) const {
   switch (RC.getID()) {
   case IC10::GPRRegClassID:
-    return getRegBank(IC10::GPRRegBankID);
   case IC10::FPRRegClassID:
-    return getRegBank(IC10::FPRRegBankID);
+    return getRegBank(IC10::APRRegBankID);
   default:
     return IC10RegisterBankInfo::getRegBankFromRegClass(RC, Ty);
   }

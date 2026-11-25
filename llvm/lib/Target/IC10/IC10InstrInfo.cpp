@@ -255,18 +255,14 @@ void IC10InstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
                                         MachineInstr::MIFlag Flags) const {
   // put frame index in place of the frame register
   const bool IsInteger = IC10::GPRRegClass.hasSubClassEq(RC);
+  const int Opcode = IsInteger ? IC10::IPUSHr : IC10::PUSHr;
   BuildMI(MBB, MI, DebugLoc(), get(IC10::IADDri), IC10::SP)
       .addFrameIndex(FI)
       .addImm(0);
-  if (IsInteger) {
-    BuildMI(MBB, MI, DebugLoc(), get(IC10::STrr))
-        .addReg(SrcReg, getKillRegState(isKill))
-        .addReg(IC10::SP);
-  } else {
-    BuildMI(MBB, MI, DebugLoc(), get(IC10::STrr))
-        .addReg(SrcReg, getKillRegState(isKill))
-        .addReg(IC10::SP);
-  }
+  BuildMI(MBB, MI, DebugLoc(), get(Opcode))
+      .addReg(SrcReg, getKillRegState(isKill))
+      .addReg(IC10::SP, RegState::Implicit)
+      .addReg(IC10::SP, RegState::ImplicitDefine);
 }
 
 void IC10InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
@@ -277,16 +273,12 @@ void IC10InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
                                          MachineInstr::MIFlag Flags) const {
   // put frame index in place of the frame register
   const bool IsInteger = IC10::GPRRegClass.hasSubClassEq(RC);
+  const int Opcode = IsInteger ? IC10::IPEEK : IC10::PEEK;
   BuildMI(MBB, MI, DebugLoc(), get(IC10::IADDri), IC10::SP)
       .addFrameIndex(FI)
-      .addImm(0);
-  if (IsInteger) {
-    BuildMI(MBB, MI, DebugLoc(), get(IC10::ILDr), DestReg)
-        .addReg(IC10::SP);
-  } else {
-    BuildMI(MBB, MI, DebugLoc(), get(IC10::LDr), DestReg)
-        .addReg(IC10::SP);
-  }
+      .addImm(1);
+  BuildMI(MBB, MI, DebugLoc(), get(Opcode), DestReg)
+      .addReg(IC10::SP, RegState::Implicit);
 }
 
 //===----------------------------------------------------------------------===//

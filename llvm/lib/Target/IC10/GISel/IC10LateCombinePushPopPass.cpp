@@ -1,7 +1,6 @@
 // IC10
 
 #include "IC10.h"
-#include "IC10TargetMachine.h"
 #include "MCTargetDesc/IC10MCTargetDesc.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -11,22 +10,15 @@
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/Register.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
-#include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/IR/Analysis.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugLoc.h"
-#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
-#include "llvm/IR/ValueMap.h"
-#include "llvm/MC/MCInst.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/ModRef.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Transforms/Scalar/LowerAtomicPass.h"
 #include <_types/_nl_item.h>
 #include <cassert>
 #include <cmath>
@@ -66,7 +58,7 @@ private:
     }
   };
 
-  bool consume(MachineBasicBlock::iterator &MII,
+  bool rewrite(MachineBasicBlock::iterator &MII,
                MachineBasicBlock::iterator End, MachineBasicBlock &MBB);
 
   bool isAddR15ToSP(const MachineInstr &MI, int64_t &Offset) {
@@ -87,54 +79,46 @@ private:
     return true;
   }
 
-  bool isStackSTOperand(const MachineInstr &MI, MachineOperand &Operand) {
+  bool getSTOperand(const MachineInstr &MI, MachineOperand &Operand) {
     unsigned int Opcode = MI.getOpcode();
-    if (Opcode == IC10::STrr) {
-      if (MI.getOperand(1).getReg() != IC10::SP)
-        return false;
-      Operand = MI.getOperand(0);
-      return true;
+    if (Opcode != IC10::PUSHi && Opcode != IC10::PUSHr) {
+      return false;
     }
-    if (Opcode == IC10::STir) {
-      if (MI.getOperand(1).getReg() != IC10::SP)
-        return false;
-      Operand = MI.getOperand(0);
-      return true;
+    Operand = MI.getOperand(0);
+    if (Operand.isReg()) {
+      Register Reg = Operand.getReg();
+      if (Reg == IC10::SP) return false;
     }
-    return false;
+    return true;
   }
 
-  bool isStackLDOperand(const MachineInstr &MI, MachineOperand &Operand) {
+  bool getLDOperand(const MachineInstr &MI, MachineOperand &Operand) {
     unsigned int Opcode = MI.getOpcode();
-    if (Opcode != IC10::LDr)
-      return false;
-    if (MI.getOperand(1).getReg() != IC10::SP)
+    if (Opcode != IC10::PEEK)
       return false;
     Operand = MI.getOperand(0);
+    if (Operand.isReg()) {
+      Register Reg = Operand.getReg();
+      if (Reg == IC10::SP || Reg == IC10::R15) return false;
+    }
     return true;
   }
 
   bool rewriteLDSequence(MachineBasicBlock::iterator Begin,
                          MachineBasicBlock::iterator End,
                          MachineBasicBlock &MBB,
-                         SmallVector<OperandAndOffset, 4> &Items);
+                         SmallVector<OperandAndOffset, 4> &Items,
+                         int64_t FinalOffset);
   bool rewriteSTSequence(MachineBasicBlock::iterator Begin,
                          MachineBasicBlock::iterator End,
                          MachineBasicBlock &MBB,
-                         SmallVector<OperandAndOffset, 4> &Items);
-  void writePushSetup(MachineBasicBlock::iterator MII, MachineBasicBlock &MBB,
-                      const OperandAndOffset &Item);
-  void writePush(MachineBasicBlock::iterator MII, MachineBasicBlock &MBB,
-                 const OperandAndOffset &Item);
-  void writePopSetup(MachineBasicBlock::iterator MII, MachineBasicBlock &MBB,
-                     const OperandAndOffset &Item);
-  void writePop(MachineBasicBlock::iterator MII, MachineBasicBlock &MBB,
-                const OperandAndOffset &Item);
+                         SmallVector<OperandAndOffset, 4> &Items,
+                         int64_t FinalOffset);
 };
 
 } // namespace
 
-bool IC10LateCombinePushPopPassImpl::consume(MachineBasicBlock::iterator &MII,
+bool IC10LateCombinePushPopPassImpl::rewrite(MachineBasicBlock::iterator &MII,
                                              MachineBasicBlock::iterator End,
                                              MachineBasicBlock &MBB) {
   MachineBasicBlock::iterator RegionBegin = MII;
@@ -146,22 +130,23 @@ bool IC10LateCombinePushPopPassImpl::consume(MachineBasicBlock::iterator &MII,
     return false;
   MachineInstr &SecondMI = *MII;
   MachineOperand Operand = MachineOperand::CreateImm(0); // place holder
-  if (isStackLDOperand(SecondMI, Operand)) {
+  if (getLDOperand(SecondMI, Operand)) {
     RegionEnd = ++MII;
-    Items.push_back({Operand, Offset, SecondMI.getDebugLoc()});
+    Items.push_back({Operand, Offset - 1, SecondMI.getDebugLoc()});
     while (MII != End) {
       MachineInstr &MIA = *MII++;
       if (MII == End || !isAddR15ToSP(MIA, Offset))
         break;
       MachineInstr &MIB = *MII;
-      if (!isStackLDOperand(MIB, Operand))
+      if (!getLDOperand(MIB, Operand))
         break;
-      Items.push_back({Operand, Offset, MIB.getDebugLoc()});
+      Items.push_back({Operand, Offset - 1, MIB.getDebugLoc()});
       RegionEnd = ++MII;
     }
-    return rewriteLDSequence(RegionBegin, RegionEnd, MBB, Items);
+    const int64_t LastOffset = Items.back().Offset + 1;
+    return rewriteLDSequence(RegionBegin, RegionEnd, MBB, Items, LastOffset);
   }
-  if (isStackSTOperand(SecondMI, Operand)) {
+  if (getSTOperand(SecondMI, Operand)) {
     RegionEnd = ++MII;
     Items.push_back({Operand, Offset, SecondMI.getDebugLoc()});
     while (MII != End) {
@@ -169,37 +154,49 @@ bool IC10LateCombinePushPopPassImpl::consume(MachineBasicBlock::iterator &MII,
       if (MII == End || !isAddR15ToSP(MIA, Offset))
         break;
       MachineInstr &MIB = *MII;
-      if (!isStackSTOperand(MIB, Operand))
+      if (!getSTOperand(MIB, Operand))
         break;
       Items.push_back({Operand, Offset, MIB.getDebugLoc()});
       RegionEnd = ++MII;
     }
-    return rewriteSTSequence(RegionBegin, RegionEnd, MBB, Items);
+    const int64_t LastOffset = Items.back().Offset + 1;
+    return rewriteSTSequence(RegionBegin, RegionEnd, MBB, Items, LastOffset);
   }
   return false;
 }
 
 bool IC10LateCombinePushPopPassImpl::rewriteLDSequence(
     MachineBasicBlock::iterator Begin, MachineBasicBlock::iterator End,
-    MachineBasicBlock &MBB, SmallVector<OperandAndOffset, 4> &Items) {
+    MachineBasicBlock &MBB, SmallVector<OperandAndOffset, 4> &Items,
+    int64_t FinalOffset) {
+  if (Items.size() <= 1)
+    return false;
   sort(Items, OperandAndOffset::decending);
   // rewrite
   MBB.erase(Begin, End);
   int64_t CurrentSPOffset = INT64_MAX;
   for (auto &Item : Items) {
     if (CurrentSPOffset != Item.Offset + 1) {
-      writePopSetup(End, MBB, Item);
+      BuildMI(MBB, End, Item.DL, TII.get(IC10::ADDri), IC10::SP)
+          .addReg(IC10::R15)
+          .addFPImm(ConstantFP::get(DoubleTy, Item.Offset + 1));
       CurrentSPOffset = Item.Offset + 1;
     }
-    writePop(End, MBB, Item);
+    BuildMI(MBB, End, Item.DL, TII.get(IC10::POP)).add(Item.Operand);
     CurrentSPOffset--;
+  }
+  if (FinalOffset != CurrentSPOffset) {
+    BuildMI(MBB, End, Items.back().DL, TII.get(IC10::ADDri), IC10::SP)
+        .addReg(IC10::R15)
+        .addFPImm(ConstantFP::get(DoubleTy, FinalOffset));
   }
   return true;
 }
 
 bool IC10LateCombinePushPopPassImpl::rewriteSTSequence(
     MachineBasicBlock::iterator Begin, MachineBasicBlock::iterator End,
-    MachineBasicBlock &MBB, SmallVector<OperandAndOffset, 4> &Items) {
+    MachineBasicBlock &MBB, SmallVector<OperandAndOffset, 4> &Items,
+    int64_t FinalOffset) {
   if (Items.size() <= 1)
     return false;
   sort(Items, OperandAndOffset::ascending);
@@ -208,42 +205,21 @@ bool IC10LateCombinePushPopPassImpl::rewriteSTSequence(
   int64_t CurrentSPOffset = INT64_MAX;
   for (auto &Item : Items) {
     if (CurrentSPOffset != Item.Offset) {
-      writePushSetup(End, MBB, Item);
+      BuildMI(MBB, End, Item.DL, TII.get(IC10::ADDri), IC10::SP)
+          .addReg(IC10::R15)
+          .addFPImm(ConstantFP::get(DoubleTy, Item.Offset));
       CurrentSPOffset = Item.Offset;
     }
-    writePush(End, MBB, Item);
+    unsigned int Opcode = Item.Operand.isFPImm() ? IC10::PUSHi : IC10::PUSHr;
+    BuildMI(MBB, End, Item.DL, TII.get(Opcode)).add(Item.Operand);
     CurrentSPOffset++;
   }
+  if (FinalOffset != CurrentSPOffset) {
+    BuildMI(MBB, End, Items.back().DL, TII.get(IC10::ADDri), IC10::SP)
+        .addReg(IC10::R15)
+        .addFPImm(ConstantFP::get(DoubleTy, FinalOffset));
+  }
   return true;
-}
-
-void IC10LateCombinePushPopPassImpl::writePushSetup(
-    MachineBasicBlock::iterator MII, MachineBasicBlock &MBB,
-    const OperandAndOffset &Item) {
-  BuildMI(MBB, MII, Item.DL, TII.get(IC10::ADDri), IC10::SP)
-      .addReg(IC10::R15)
-      .addFPImm(ConstantFP::get(DoubleTy, Item.Offset));
-}
-
-void IC10LateCombinePushPopPassImpl::writePush(MachineBasicBlock::iterator MII,
-                                               MachineBasicBlock &MBB,
-                                               const OperandAndOffset &Item) {
-  unsigned int Opcode = Item.Operand.isFPImm() ? IC10::PUSHi : IC10::PUSHr;
-  BuildMI(MBB, MII, Item.DL, TII.get(Opcode)).add(Item.Operand);
-}
-
-void IC10LateCombinePushPopPassImpl::writePopSetup(
-    MachineBasicBlock::iterator MII, MachineBasicBlock &MBB,
-    const OperandAndOffset &Item) {
-  BuildMI(MBB, MII, Item.DL, TII.get(IC10::ADDri), IC10::SP)
-      .addReg(IC10::R15)
-      .addFPImm(ConstantFP::get(DoubleTy, Item.Offset + 1));
-}
-
-void IC10LateCombinePushPopPassImpl::writePop(MachineBasicBlock::iterator MII,
-                                              MachineBasicBlock &MBB,
-                                              const OperandAndOffset &Item) {
-  BuildMI(MBB, MII, Item.DL, TII.get(IC10::POP)).add(Item.Operand);
 }
 
 PreservedAnalyses IC10LateCombinePushPopPassImpl::apply(MachineFunction &MF) {
@@ -254,7 +230,7 @@ PreservedAnalyses IC10LateCombinePushPopPassImpl::apply(MachineFunction &MF) {
   for (MachineBasicBlock &MBB : MF) {
     auto MII = MBB.begin();
     while (MII != MBB.end()) {
-      Changed |= consume(MII, MBB.end(), MBB);
+      Changed |= rewrite(MII, MBB.end(), MBB);
     }
   }
   return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();

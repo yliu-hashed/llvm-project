@@ -2,10 +2,13 @@
 
 #include "IC10.h"
 #include "IC10TargetMachine.h"
+#include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineOperand.h"
+#include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/Register.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
@@ -31,15 +34,17 @@ struct IC10PreLegalizerAddressabilityFixPassImpl {
   PreservedAnalyses apply(MachineFunction &MF);
 
 private:
-  bool fixPtrAdd(MachineInstr &MI, MachineBasicBlock &MBB);
-  bool fixPtr2Int(MachineInstr &MI, MachineBasicBlock &MBB);
-  bool fixInt2Ptr(MachineInstr &MI, MachineBasicBlock &MBB);
+  bool fixPtrAdd(MachineInstr &MI, MachineIRBuilder &MIRBuilder);
+  bool fixPtr2Int(MachineInstr &MI, MachineIRBuilder &MIRBuilder);
+  bool fixInt2Ptr(MachineInstr &MI, MachineIRBuilder &MIRBuilder);
 };
 
 } // namespace
 
 PreservedAnalyses
 IC10PreLegalizerAddressabilityFixPassImpl::apply(MachineFunction &MF) {
+  MachineIRBuilder MIRBuilder(MF);
+
   bool Changed = false;
   for (MachineBasicBlock &MBB : MF) {
     auto MII = MBB.begin();
@@ -49,13 +54,16 @@ IC10PreLegalizerAddressabilityFixPassImpl::apply(MachineFunction &MF) {
       default:
         break;
       case TargetOpcode::G_PTR_ADD:
-        Changed |= fixPtrAdd(MI, MBB);
+        MIRBuilder.setInsertPt(MBB, MI);
+        Changed |= fixPtrAdd(MI, MIRBuilder);
         break;
       case TargetOpcode::G_INTTOPTR:
-        Changed |= fixInt2Ptr(MI, MBB);
+        MIRBuilder.setInsertPt(MBB, MI);
+        Changed |= fixInt2Ptr(MI, MIRBuilder);
         break;
       case TargetOpcode::G_PTRTOINT:
-        Changed |= fixPtr2Int(MI, MBB);
+        MIRBuilder.setInsertPt(MBB, MI);
+        Changed |= fixPtr2Int(MI, MIRBuilder);
         break;
       }
     }
@@ -64,32 +72,27 @@ IC10PreLegalizerAddressabilityFixPassImpl::apply(MachineFunction &MF) {
 }
 
 bool IC10PreLegalizerAddressabilityFixPassImpl::fixPtrAdd(
-    MachineInstr &MI, MachineBasicBlock &MBB) {
+    MachineInstr &MI, MachineIRBuilder &MIRBuilder) {
   using namespace TargetOpcode;
   assert(MI.getOpcode() == G_PTR_ADD);
 
-  DebugLoc DL = MI.getDebugLoc();
   MachineOperand &Offset = MI.getOperand(2);
   Register ByteOffsetReg = Offset.getReg();
   LLT Type = MRI.getType(ByteOffsetReg);
 
-  Register Shifted = MRI.createGenericVirtualRegister(Type);
   Register ShiftAmount = MRI.createGenericVirtualRegister(Type);
-  BuildMI(MBB, MI, DL, TII.get(G_CONSTANT), ShiftAmount)
-      .addImm(3);
-  BuildMI(MBB, MI, DL, TII.get(G_LSHR), Shifted)
-      .addReg(ByteOffsetReg)
-      .addReg(ShiftAmount);
+  MIRBuilder.buildConstant(ShiftAmount, 3);
+  Register Shifted = MRI.createGenericVirtualRegister(Type);
+  MIRBuilder.buildAShr(Shifted, ByteOffsetReg, ShiftAmount);
   Offset.ChangeToRegister(Shifted, false);
   return true;
 }
 
 bool IC10PreLegalizerAddressabilityFixPassImpl::fixPtr2Int(
-    MachineInstr &MI, MachineBasicBlock &MBB) {
+    MachineInstr &MI, MachineIRBuilder &MIRBuilder) {
   using namespace TargetOpcode;
   assert(MI.getOpcode() == G_PTRTOINT);
 
-  DebugLoc DL = MI.getDebugLoc();
   MachineOperand &Result = MI.getOperand(0);
   Register ResultReg = Result.getReg();
   LLT Type = MRI.getType(ResultReg);
@@ -98,30 +101,24 @@ bool IC10PreLegalizerAddressabilityFixPassImpl::fixPtr2Int(
   Result.ChangeToRegister(ByteResultReg, true);
 
   Register ShiftAmount = MRI.createGenericVirtualRegister(Type);
-  BuildMI(MBB, MI, DL, TII.get(G_CONSTANT), ShiftAmount).addImm(3);
-  BuildMI(MBB, MI, DL, TII.get(G_SHL), ResultReg)
-      .addReg(ByteResultReg)
-      .addReg(ShiftAmount);
+  MIRBuilder.buildConstant(ShiftAmount, 3);
+  MIRBuilder.buildShl(ResultReg, ByteResultReg, ShiftAmount);
   return true;
 }
 
 bool IC10PreLegalizerAddressabilityFixPassImpl::fixInt2Ptr(
-    MachineInstr &MI, MachineBasicBlock &MBB) {
+    MachineInstr &MI, MachineIRBuilder &MIRBuilder) {
   using namespace TargetOpcode;
   assert(MI.getOpcode() == G_INTTOPTR);
 
-  DebugLoc DL = MI.getDebugLoc();
   MachineOperand &Source = MI.getOperand(1);
   Register ByteSourceReg = Source.getReg();
   LLT Type = MRI.getType(ByteSourceReg);
 
   Register Shifted = MRI.createGenericVirtualRegister(Type);
   Register ShiftAmount = MRI.createGenericVirtualRegister(Type);
-  BuildMI(MBB, MI, DL, TII.get(G_CONSTANT), ShiftAmount)
-      .addImm(3);
-  BuildMI(MBB, MI, DL, TII.get(G_LSHR), Shifted)
-      .addReg(ByteSourceReg)
-      .addReg(ShiftAmount);
+  MIRBuilder.buildConstant(ShiftAmount, 3);
+  MIRBuilder.buildLShr(Shifted, ByteSourceReg, ShiftAmount);
   Source.ChangeToRegister(Shifted, false);
   return true;
 }

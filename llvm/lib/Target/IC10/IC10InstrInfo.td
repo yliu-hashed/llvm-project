@@ -19,39 +19,11 @@ def G_FGT : G_ASSERT_ORDERED_FCMP;
 def G_FLE : G_ASSERT_ORDERED_FCMP;
 def G_FLT : G_ASSERT_ORDERED_FCMP;
 
-def G_PUSH : IC10GenericInstruction {
-  let OutOperandList = (outs ptype0:$inc);
-  let InOperandList = (ins type1:$src, ptype0:$ptr);
-  let hasSideEffects = 1;
-  let mayStore = 1;
-  let GISelMatchGenericTypes = 1;
-}
-
-def G_POP : IC10GenericInstruction {
-  let OutOperandList = (outs type0:$dst, ptype0:$inc);
-  let InOperandList = (ins ptype0:$ptr);
-  let mayLoad = 1;
-  let GISelMatchGenericTypes = 1;
-}
-
-def G_PEAK : IC10GenericInstruction {
-  let OutOperandList = (outs type0:$dst);
-  let InOperandList = (ins ptype0:$ptr);
-  let mayLoad = 1;
-  let GISelMatchGenericTypes = 1;
-}
-
 //===----------------------------------------------------------------------===//
 // Type Profiles
 //===----------------------------------------------------------------------===//
 
 def BranchTarget : Operand<OtherVT>;
-
-def AddrRegImm : ComplexPattern<iPTR, 2, "SelectAddrRegImm">;
-
-def GIAddrRegImm :
-  GIComplexOperandMatcher<s64, "selectAddrRegImm">,
-  GIComplexPatternEquiv<AddrRegImm>;
 
 // account for flog missing
 def flog : SDNode<"ISD::FLOG", SDTFPUnaryOp>;
@@ -403,56 +375,8 @@ def BNANr : IC10Inst<(outs), (ins FPR:$src1, BranchTarget:$tgt),
                       "bnan $src1 $tgt">;
 
 //===----------------------------------------------------------------------===//
-// Load and Store Type Instructions
+// Load and Store Pseudo
 //===----------------------------------------------------------------------===//
-
-// Load
-
-def ILDi : IC10PseudoInst<(outs GPR:$dst), (ins uimm32:$imm),
-                          "# load $dst at $imm">;
-def ILDr : IC10PseudoInst<(outs GPR:$dst), (ins GPR:$addr),
-                          "# load $dst at $addr">;
-
-def : Pat<(load uimm32:$imm), (ILDi uimm32:$imm)>;
-def : Pat<(load GPR:$addr), (ILDi GPR:$addr)>;
-
-def LDi : IC10Inst<(outs FPR:$dst), (ins uimm32:$imm),
-                   "get $dst d0 $imm">;
-def LDr : IC10Inst<(outs FPR:$dst), (ins GPR:$addr),
-                   "get $dst d0 $addr">;
-
-def : Pat<(load uimm32:$imm), (LDi uimm32:$imm)>;
-def : Pat<(load GPR:$addr), (LDi GPR:$addr)>;
-
-// Store
-
-def ISTrr : IC10PseudoInst<(outs), (ins GPR:$src1, GPR:$src2),
-                           "# store $src1 at $src2">;
-def ISTir : IC10PseudoInst<(outs), (ins uimm32:$imm1, GPR:$src2),
-                           "# store $imm1 at $src2">;
-def ISTri : IC10PseudoInst<(outs), (ins GPR:$src1, uimm32:$imm2),
-                           "# store $src1 at $imm2">;
-def ISTii : IC10PseudoInst<(outs), (ins uimm32:$imm1, uimm32:$imm2),
-                           "# store $imm1 at $imm2">;
-
-def : Pat<(store GPR:$src, GPR:$addr), (ISTrr GPR:$src, GPR:$addr)>;
-def : Pat<(store uimm32:$src, GPR:$addr), (ISTir uimm32:$src, GPR:$addr)>;
-def : Pat<(store GPR:$src, uimm32:$addr), (ISTri GPR:$src, uimm32:$addr)>;
-def : Pat<(store uimm32:$src, uimm32:$addr), (ISTii uimm32:$src, uimm32:$addr)>;
-
-def STrr : IC10Inst<(outs), (ins FPR:$src1, GPR:$src2),
-                    "put db $src2 $src1">;
-def STir : IC10Inst<(outs), (ins fimm64:$imm1, GPR:$src2),
-                    "put db $src2 $imm1">;
-def STri : IC10Inst<(outs), (ins FPR:$src1, uimm32:$imm2),
-                    "put db $imm2 $src1">;
-def STii : IC10Inst<(outs), (ins fimm64:$imm1, uimm32:$imm2),
-                    "put db $imm2 $imm1">;
-
-def : Pat<(store FPR:$src, GPR:$addr), (STrr FPR:$src, GPR:$addr)>;
-def : Pat<(store fimm64:$src, GPR:$addr), (STir fimm64:$src, GPR:$addr)>;
-def : Pat<(store FPR:$src, uimm32:$addr), (STri FPR:$src, uimm32:$addr)>;
-def : Pat<(store fimm64:$src, uimm32:$addr), (STii fimm64:$src, uimm32:$addr)>;
 
 let Uses = [SP] in {
   let Defs = [SP] in {

@@ -1,4 +1,4 @@
 // IC10
 
-def GPRRegBank : RegisterBank<"AnyGPR", [GPR]>;
-def FPRRegBank : RegisterBank<"AnyFPR", [FPR]>;
+/// Any register register bank, contains everything
+def APRRegBank : RegisterBank<"AnyReg", [GPR, FPR]>;
